@@ -3,3 +3,6 @@
 images/
 versions/
 .venv/
+test.py
+images/
+images_outputs/

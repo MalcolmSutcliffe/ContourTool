@@ -373,8 +373,11 @@ def split_path_at_moves(path):
     return segments if segments else [path]
 
 
-def render_contours(T, args):
+def render_contours(T, args, output_path=None):
     """Render contours directly from distance map (matches original behavior)."""
+    if output_path is None:
+        output_path = args.output
+    
     h, w = T.shape
     
     # Smooth the distance field to eliminate grid anisotropy artifacts
@@ -483,24 +486,14 @@ def render_contours(T, args):
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     
     # Save with format detection from file extension
-    output_format = Path(args.output).suffix[1:].lower() or 'svg'
-    print(f"Saving {output_format.upper()}: {args.output}")
-    plt.savefig(args.output, format=output_format, bbox_inches='tight', pad_inches=0)
+    output_format = Path(output_path).suffix[1:].lower() or 'svg'
+    print(f"Saving {output_format.upper()}: {output_path}")
+    plt.savefig(output_path, format=output_format, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-
-def main():
-    """Main execution function."""
-    args = parse_args()
-    
-    # Validate input file
-    input_path = Path(args.input)
-    if not input_path.exists():
-        print(f"Error: Input file '{args.input}' not found.", file=sys.stderr)
-        sys.exit(1)
-    
-    print(f"Loading image: {args.input}")
-    img = load_and_preprocess(args.input, args)
+def contour_image(img_path, args, output_path=None):
+    print(f"Loading image: {img_path}")
+    img = load_and_preprocess(img_path, args)
     h, w = img.shape
     
     print(f"Image size: {w}x{h}")
@@ -561,7 +554,35 @@ def main():
     print(f"Fast marching completed in {elapsed:.2f}s")
     
     # Render output directly from distance map
-    render_contours(T, args)
+    render_contours(T, args, output_path)
+
+def main():
+    """Main execution function."""
+    args = parse_args()
+    
+    # Validate input file
+    input_path = Path(args.input)
+
+    input_paths = []
+
+    if not input_path.exists():
+        print(f"Error: Input file '{args.input}' not found.", file=sys.stderr)
+        sys.exit(1)
+
+    # check for folder, do batch
+    if input_path.is_dir():
+        # create output directory
+        output_path = Path(input_path.name + "_outputs")
+        output_path.mkdir(parents=True, exist_ok=True)
+        for file_path in input_path.iterdir():
+            if file_path.is_file():
+                input_paths.append(file_path)
+        for input_path in input_paths:
+            contour_image(input_path, args, output_path.name + "/" + input_path.stem + ".svg")
+    
+    else:
+        contour_image(input_path, args)
+    
     print("Done!")
 
 
