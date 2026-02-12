@@ -580,13 +580,13 @@ def main():
     # check for folder, do batch
     if input_path.is_dir():
         # create output directory
-        output_path = Path(input_path.name + "_outputs")
+        output_path = Path(str(input_path.parent)+ "\\" + input_path.name + "_outputs")
         output_path.mkdir(parents=True, exist_ok=True)
         for file_path in input_path.iterdir():
             if file_path.is_file():
                 input_paths.append(file_path)
         for input_path in input_paths:
-            contour_image(input_path, args, output_path.name + "/" + input_path.stem + ".svg")
+            contour_image(input_path, args, str(output_path) + "/" + input_path.stem + ".svg")
     
     else:
         contour_image(input_path, args)
