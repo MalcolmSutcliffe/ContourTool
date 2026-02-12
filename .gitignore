@@ -1,8 +1,8 @@
 *.DS_Store
 *.afdesign
 images/
+images_outputs/
 versions/
 .venv/
 test.py
-images/
-images_outputs/
+
