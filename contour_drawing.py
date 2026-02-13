@@ -98,6 +98,8 @@ Examples:
                         help='Split paths at MOVETO codes to remove jump artifacts (default: on)')
     parser.add_argument('--no-clean-artifacts', action='store_false', dest='clean_artifacts',
                         help='Disable path splitting')
+    parser.add_argument('-connect-edges', action='store_true', default=(default_values["connect-edges"]=="True"),
+                        help='Conenct contour lines that are on the edge of the image (default: off)')
     parser.add_argument('--pure-python', action='store_true',
                         help='Use pure Python fast marching (slower, for comparison/fallback)')
     parser.add_argument('--progress', action='store_true', default=(default_values["show-progress"]=="True"),
@@ -478,6 +480,63 @@ def render_contours(T, args, output_path=None):
             artist.remove()
         from matplotlib.collections import LineCollection
         from matplotlib.path import Path as MplPath
+
+        if args.connect_edges:
+            
+            new_paths = []
+            
+            # edge points sorted into each edge of screen (going clockwise from 0,0)
+            edge_points = [[], [(0,h-1)], [(w-1,h-1)], [(w-1,0)]]
+            
+            print("connecting edge lines")
+            
+            for path in processed_paths:
+                
+                # if closed loop, continue
+                if np.array_equal(path.vertices[0], path.vertices[-1]):
+                    continue
+                
+                # find the edge points
+                for vertex in path.vertices:
+                    if abs(vertex[0]) < 0.01:
+                        edge_points[0].append(vertex)
+                    if abs((vertex[1]+1) - h) < 0.01:
+                        edge_points[1].append(vertex)
+                    if abs((vertex[0]+1) - w) < 0.01:
+                        edge_points[2].append(vertex)
+                    if abs(vertex[1]) < 0.01:
+                        edge_points[3].append(vertex)
+                    
+                    
+            # sort lists by other value
+            edge_points[0].sort(key=lambda x: x[1])
+            edge_points[1].sort(key=lambda x: x[0])
+            edge_points[2].sort(key=lambda x: x[1], reverse = True)
+            edge_points[3].sort(key=lambda x: x[0], reverse = True)
+            
+            do_line=True
+
+            for i, edge_side in enumerate(edge_points):
+                for j, point in enumerate(edge_side):
+                    # do every other line
+                    if do_line:
+                        # if reached end of edge, connect to corner
+                        if (j >= len(edge_points[i])-1):
+                            # if last edge skip
+                            if (i >= 3):
+                                continue
+                            else:
+                                new_paths.append(MplPath([point, edge_points[i+1][0]]))
+                                do_line = False
+                        else:
+                            new_paths.append(MplPath([point, edge_points[i][j+1]]))
+                    
+                    do_line = not do_line
+
+
+            print("added " + str(len(new_paths)) + " new edge line")
+            processed_paths.extend(new_paths)
+
         segments = []
         for path in processed_paths:
             segments.append(path.vertices)
@@ -491,6 +550,7 @@ def render_contours(T, args, output_path=None):
     ax.set_xlim(0, w)
     ax.set_ylim(h, 0)
     ax.axis('off')
+
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     
     # Save with format detection from file extension
