@@ -512,7 +512,7 @@ def render_contours(T, args, output_path=None):
             new_paths.extend(split_path_at_moves(path))
 
         # create dict of segments referenced by their intersection point
-        line_segments = {"x_0_intercepts" : [], "x_1_intercepts" : [], "y_0_intercepts" : [], "y_1_intercepts" : []}
+        line_segments = {"x_0_intercepts" : {}, "x_1_intercepts" : {}, "y_0_intercepts" : {}, "y_1_intercepts" : {}}
 
         for path in new_paths:
             # if not on border, skip
@@ -523,32 +523,36 @@ def render_contours(T, args, output_path=None):
                 continue
             
             if vertex0[0] == 0:
-                line_segments["x_0_intercepts"].append(path)
+                line_segments["x_0_intercepts"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
             if vertex0[0] == w-1:
-                line_segments["x_1_intercepts"].append(path)
+                line_segments["x_1_intercepts"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
             if vertex0[1] == 0:
-                line_segments["y_0_intercepts"].append(path)
+                line_segments["y_0_intercepts"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
             if vertex0[1] == h-1:
-                line_segments["y_1_intercepts"].append(path)
+                line_segments["y_1_intercepts"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if vertex1[0] == 0:
+                line_segments["x_0_intercepts"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if vertex1[0] == w-1:
+                line_segments["x_1_intercepts"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if vertex1[1] == 0:
+                line_segments["y_0_intercepts"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if vertex1[1] == h-1:
+                line_segments["y_1_intercepts"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
             
             x_points.append(path.vertices[0][0])
             x_points.append(path.vertices[-1][0])
             y_points.append(path.vertices[0][1])
             y_points.append(path.vertices[-1][1])
         
+        print(line_segments["x_0_intercepts"].keys())
+        
         plt.scatter(x_points, y_points, c="red")
        
         # print("added " + str(len(new_paths)) + " new edge line")
 
         segments = []
-        for path in line_segments["x_0_intercepts"]:
-            segments.append(path.vertices)
-        for path in line_segments["x_1_intercepts"]:
-            segments.append(path.vertices)
-        for path in line_segments["y_0_intercepts"]:
-            segments.append(path.vertices)
-        for path in line_segments["y_1_intercepts"]:
-            segments.append(path.vertices)
+        # for path in line_segments["x_0_intercepts"].values():
+        #     segments.append(path.vertices)
         if segments:
             lc = LineCollection(segments, colors="blue", linewidths=args.thickness)
             ax.add_collection(lc)
