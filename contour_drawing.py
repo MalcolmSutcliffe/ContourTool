@@ -486,7 +486,7 @@ def render_contours(T, args, output_path=None):
             new_paths = []
             
             # edge points sorted into each edge of screen (going counter-clockwise from 0,0, with corners)
-            edge_points = [[(0,0), (0,h-1)], [(0,h-1), (w-1,h-1)], [(w-1,h-1), (w-1,0)], [(w-1,0), (0,0)]]
+            edge_points = [[(0,0), (0,h-1)], [(0,h-1), (w-1,h-1)], [(w-1,h-1), (w-1,0)], [(w-1,0)]]
             
             print("connecting edge lines")
             
@@ -525,10 +525,10 @@ def render_contours(T, args, output_path=None):
             edge_points[3].sort(key=lambda x: x[0], reverse = True)
 
             # clean artifacts
-            edge_points[0] = [edge_points[0][i] for i in range(len(edge_points[0])) if abs(edge_points[0][(i+1)%len(edge_points[0])][1] - edge_points[0][i][1]) > 2]
-            edge_points[1] = [edge_points[1][i] for i in range(len(edge_points[1])) if abs(edge_points[1][(i+1)%len(edge_points[1])][0] - edge_points[1][i][0]) > 2]
-            edge_points[2] = [edge_points[2][i] for i in range(len(edge_points[2])) if abs(edge_points[2][(i+1)%len(edge_points[2])][1] - edge_points[2][i][1]) > 2]
-            edge_points[3] = [edge_points[3][i] for i in range(len(edge_points[3])) if abs(edge_points[3][(i+1)%len(edge_points[3])][0] - edge_points[3][i][0]) > 2]
+            edge_points[0] = [edge_points[0][i] for i in range(len(edge_points[0])) if abs(edge_points[0][(i+1)%len(edge_points[0])][1] - edge_points[0][i][1]) > 2*args.thickness]
+            edge_points[1] = [edge_points[1][i] for i in range(len(edge_points[1])) if abs(edge_points[1][(i+1)%len(edge_points[1])][0] - edge_points[1][i][0]) > 2*args.thickness]
+            edge_points[2] = [edge_points[2][i] for i in range(len(edge_points[2])) if abs(edge_points[2][(i+1)%len(edge_points[2])][1] - edge_points[2][i][1]) > 2*args.thickness]
+            edge_points[3] = [edge_points[3][i] for i in range(len(edge_points[3])) if abs(edge_points[3][(i+1)%len(edge_points[3])][0] - edge_points[3][i][0]) > 2*args.thickness]
 
             for i in range(4):
                 print(edge_points[i])
@@ -542,7 +542,9 @@ def render_contours(T, args, output_path=None):
                         print("draw line: " + str(point) + " , " + str(edge_points[i][j+1]))
                         new_paths.append(MplPath([point, edge_points[i][j+1]]))
                     do_line=not do_line
-                    
+                if not i==0:
+                    do_line=not do_line
+            
             print("added " + str(len(new_paths)) + " new edge line")
             processed_paths.extend(new_paths)
 
