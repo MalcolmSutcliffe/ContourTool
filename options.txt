@@ -1,5 +1,5 @@
 sources: []
-number-contours: 20
+number-contours: 40
 min-points: 10
 gamma: 1.0
 dark-boost: 1.0

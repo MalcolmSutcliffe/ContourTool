@@ -530,8 +530,6 @@ def render_contours(T, args, output_path=None):
         new_paths = []
 
         # find edge intersections:
-        x_points = []
-        y_points = []
         line_segments = {"x_0" : {}, "x_1" : {}, "y_0" : {}, "y_1" : {}}
 
         for path in processed_paths:
@@ -559,12 +557,7 @@ def render_contours(T, args, output_path=None):
             if  abs(vertex1[1] - (h-1)) < 0.1:
                 line_segments["y_1"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
             
-            x_points.append(path.vertices[0][0])
-            x_points.append(path.vertices[-1][0])
-            y_points.append(path.vertices[0][1])
-            y_points.append(path.vertices[-1][1])
     
-        plt.scatter(x_points, y_points, c="red")
 
         line_segments_compiled = line_segments["x_0"] | line_segments["x_1"] | line_segments["y_0"] | line_segments["y_1"]
 
@@ -575,110 +568,147 @@ def render_contours(T, args, output_path=None):
         y_1_sorted = sorted(list(line_segments["y_1"].keys()) + [(0,h-1), (w-1,h-1)], key= lambda x : x[0])
        
         # algorithm:
-        
-        # start at arbitrary point
-        current_point = y_1_sorted[1]
-        next_point = line_segments_compiled[current_point]
-        y_1_sorted.remove(current_point)
 
-        current_point = next_point
+        # start at bottom left
+        current_point = (0,849)
+        x_0_dir = 0
+        x_1_dir = 0
+        y_0_dir = 0
+        y_1_dir = 0
 
-        # get next point on edge : nearest univisited, prefering away from corner
-        
+        # track bounds for later
+        bounds = {"x_0" : {"min" : 0, "max" : h-1}, "x_1" : {"min" : 0, "max" : h-1}, "y_0" : {"min" : 0, "max" : w-1}, "y_1" : {"min" : 0, "max" : w-1}}
+
         for i in range(len(processed_paths)):
-            
             # case : on x0 border
             if current_point in x_0_sorted:
-                if len(x_0_sorted) <= 2:
-                    break
-                next_point = get_next_point(x_0_sorted, current_point)
-                # hit corner min:
-                if next_point == (0,0):
-                    new_paths.append(MplPath([current_point, next_point]))
-                    current_point = next_point
-                    next_point = y_0_sorted[1]
-                # hit corner max:
-                if next_point == (0,h-1):
-                    new_paths.append(MplPath([current_point, next_point]))
-                    current_point = next_point
-                    next_point = y_1_sorted[1]
+                # update bounds
+                if x_0_dir == 1:
+                    bounds["x_0"]["min"] = max(bounds["x_0"]["min"], current_point[1])
+                elif x_0_dir == -1:
+                    bounds["x_0"]["max"] = min(bounds["x_0"]["max"], current_point[1])
+                
+                x_0_sorted = [x for x in x_0_sorted if bounds["x_0"]["min"] <= x[1] <= bounds["x_0"]["max"]]
+                
+                current_index = x_0_sorted.index(current_point)
+
+                if current_index + 1.5 < len(x_0_sorted)/2:
+                    x_0_dir = 1
+                elif current_index + 1.5 > len(x_0_sorted)/2:
+                    x_0_dir = -1
+                
+                # case : last index, break
+                if current_index == len(x_0_sorted)-1:
+                    pass
+                # choose next point in direction
+                next_point = x_0_sorted[current_index + x_0_dir]
+
+                # remove point from list
+                x_0_sorted.remove(current_point)
+
             
             # case : on x1 border
             elif current_point in x_1_sorted:
-                if len(x_1_sorted) <= 2:
-                    break
-                next_point = get_next_point(x_1_sorted, current_point)
-                # hit corner min:
-                if next_point == (w-1,0):
-                    new_paths.append(MplPath([current_point, next_point]))
-                    current_point = next_point
-                    next_point = y_0_sorted[-2]
-                # hit corner max:
-                if next_point == (w-1,h-1):
-                    new_paths.append(MplPath([current_point, next_point]))
-                    current_point = next_point
-                    next_point = y_1_sorted[-2]
+                # update bounds
+                if x_1_dir == 1:
+                    bounds["x_1"]["min"] = max(bounds["x_1"]["min"], current_point[1])
+                elif x_1_dir == -1:
+                    bounds["x_1"]["max"] = min(bounds["x_1"]["max"], current_point[1])
+                
+                x_1_sorted = [x for x in x_1_sorted if bounds["x_1"]["min"] <= x[1] <= bounds["x_1"]["max"]]
+                
+                current_index = x_1_sorted.index(current_point)
+
+                if current_index + 1.5 < len(x_0_sorted)/2:
+                    x_1_dir = 1
+                elif current_index + 1.5 > len(x_0_sorted)/2:
+                    x_1_dir = -1
+                
+                # case : last index, break
+                if current_index == len(x_1_sorted)-1:
+                    pass
+                # choose next point in direction
+                next_point = x_1_sorted[current_index + x_1_dir]
+                
+                # remove point from list
+                x_1_sorted.remove(current_point)
+
+
 
             # case : on y0 border
             elif current_point in y_0_sorted:
-                if len(y_0_sorted) <= 2:
-                    break
-                next_point = get_next_point(y_0_sorted, current_point)
-                # hit corner min:
-                if next_point == (0,0):
-                    new_paths.append(MplPath([current_point, next_point]))
-                    current_point = next_point
-                    next_point = x_0_sorted[1]
-                # hit corner max:
-                if next_point == (w-1,0):
-                    new_paths.append(MplPath([current_point, next_point]))
-                    current_point = next_point
-                    next_point = x_1_sorted[1]
-            
+                # update bounds
+                if y_0_dir == 1:
+                    bounds["y_0"]["min"] = max(bounds["y_0"]["min"], current_point[0])
+                elif y_0_dir == -1:
+                    bounds["y_0"]["max"] = min(bounds["y_0"]["max"], current_point[0])
+                
+                y_0_sorted = [x for x in y_0_sorted if bounds["y_0"]["min"] <= x[0] <= bounds["y_0"]["max"]]
+                
+                current_index = y_0_sorted.index(current_point)
+                
+                if current_index + 1.5 < len(y_0_sorted)/2:
+                    y_0_dir = 1
+                elif current_index + 1.5 > len(y_0_sorted)/2:
+                    y_0_dir = -1
+                
+                # case : last index, break
+                if current_index == len(y_0_sorted)-1:
+                    pass
+                # choose next point in direction
+                next_point = y_0_sorted[current_index + y_0_dir]
+
+                # remove point from list
+                y_0_sorted.remove(current_point)
+
+
             # case : on y1 border
             elif current_point in y_1_sorted:
-                if len(y_1_sorted) <= 2:
-                    break
-                next_point = get_next_point(y_1_sorted, current_point)
-                # hit corner min:
-                if next_point == (0,h-1):
-                    new_paths.append(MplPath([current_point, next_point]))
-                    current_point = next_point
-                    next_point = x_0_sorted[-2]
-                # hit corner max:
-                if next_point == (w-1,h-1):
-                    new_paths.append(MplPath([current_point, next_point]))
-                    current_point = next_point
-                    next_point = x_1_sorted[-2]
+                # update bounds
+                if y_1_dir == 1:
+                    bounds["y_1"]["min"] = max(bounds["y_1"]["min"], current_point[0])
+                elif y_1_dir == -1:
+                    bounds["y_1"]["max"] = min(bounds["y_1"]["max"], current_point[0])
 
-            new_paths.append(MplPath([current_point, next_point]))
+                y_1_sorted = [x for x in y_1_sorted if bounds["y_1"]["min"] <= x[0] <= bounds["y_1"]["max"]]
+                
+                current_index = y_1_sorted.index(current_point)
 
-            # remove visited points
-            if current_point in x_0_sorted:
-                x_0_sorted.remove(current_point)
-            if current_point in x_1_sorted:
-                x_1_sorted.remove(current_point)
-            if current_point in y_0_sorted:
-                y_0_sorted.remove(current_point)
-            if current_point in y_1_sorted:
+                if current_index + 1.5 < len(y_1_sorted)/2:
+                    y_1_dir = 1
+                elif current_index + 1.5 > len(y_1_sorted)/2:
+                    y_1_dir = -1
+                
+                # case : last index, break
+                if current_index == len(y_1_sorted)-1:
+                    pass
+                # choose next point in direction
+                next_point = y_1_sorted[current_index + y_1_dir]
+                
+                # remove point from list
                 y_1_sorted.remove(current_point)
 
-            if next_point in x_0_sorted:
-                x_0_sorted.remove(next_point)
-            if next_point in x_1_sorted:
-                x_1_sorted.remove(next_point)
-            if next_point in y_0_sorted:
-                y_0_sorted.remove(next_point)
-            if next_point in y_1_sorted:
-                y_1_sorted.remove(next_point)
-
-            print(current_point)
-            line_endpoint = line_segments_compiled[next_point]
-            current_point = line_endpoint
+            if current_point == next_point:
+                break
             
+            new_paths.append(MplPath([current_point, next_point]))
+
+            # if corner:
+            if next_point in ((0,0), (0,h-1), (w-1, 0), (w-1,h-1)):
+                current_point = next_point
+            else:
+                if next_point in x_0_sorted:
+                    x_0_sorted.remove(next_point)
+                if next_point in x_1_sorted:
+                    x_1_sorted.remove(next_point)
+                if next_point in y_0_sorted:
+                    y_0_sorted.remove(next_point)
+                if next_point in y_1_sorted:
+                    y_1_sorted.remove(next_point)
+                line_endpoint = line_segments_compiled[next_point]
+                current_point = line_endpoint
 
         processed_paths.extend(new_paths)
-        # processed_paths = [MplPath(new_path)]
     
     segments = []
     for path in processed_paths:
