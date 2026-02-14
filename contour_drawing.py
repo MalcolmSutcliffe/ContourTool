@@ -14,7 +14,10 @@ from skimage.filters import gaussian
 from skimage.transform import resize
 import matplotlib
 matplotlib.use('Agg')
+from matplotlib.collections import LineCollection
+from matplotlib.path import Path as MplPath
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import cm
 import heapq
 
 # Optional scikit-fmm support (C implementation, much faster)
@@ -336,7 +339,6 @@ def solve_eikonal(T, speed, y, x, h, w):
     # Fallback (should not reach here if properly initialized)
     return np.inf
 
-
 def split_path_at_moves(path):
     """
     Split a matplotlib Path at MOVETO commands.
@@ -382,6 +384,46 @@ def split_path_at_moves(path):
     
     return segments if segments else [path]
 
+def get_closest_points(path1, path2):
+    from scipy.spatial import KDTree
+
+    vertices1 = path1.vertices
+    vertices2 = path2.vertices
+
+    # Build a KDTree for one set of vertices (e.g., path 2)
+    tree2 = KDTree(vertices2)
+
+    # Find the distance and index of the closest point in tree2 for each point in vertices1
+    distances, indices = tree2.query(vertices1)
+
+    # Find the overall minimum distance and its corresponding index in vertices1
+    min_distance_index_p1 = np.argmin(distances)
+    min_distance_index_p2 = indices[min_distance_index_p1]
+
+    return (min_distance_index_p1, min_distance_index_p2)
+
+def get_direction(current_point, remaining_points, all_edge_nodes_ordered):
+    points_forward = 0
+    points_backward = 0
+
+    current_index = all_edge_nodes_ordered.index(current_point)
+    
+    for i in range(len(all_edge_nodes_ordered)):
+        check_index = (current_index+i)%len(all_edge_nodes_ordered)
+        if not remaining_points[check_index]:
+            break
+        points_forward += 1
+        
+    
+    for i in range(len(all_edge_nodes_ordered)):
+        check_index = (current_index-i)%len(all_edge_nodes_ordered)
+        if not remaining_points[check_index]:
+            break
+        points_backward += 1
+
+    if points_forward >= points_backward:
+        return 1
+    return -1
 
 def render_contours(T, args, output_path=None):
     """Render contours directly from distance map (matches original behavior)."""
@@ -432,6 +474,8 @@ def render_contours(T, args, output_path=None):
     # Filter contours in place (compatible with matplotlib 3.8+)
     filtered = 0
     artifacts_removed = 0
+
+    processed_paths = []
     
     if hasattr(cs, 'collections'):
         # Old matplotlib (<3.8)
@@ -457,7 +501,6 @@ def render_contours(T, args, output_path=None):
         # New matplotlib (3.8+)
         all_paths = cs.get_paths()
         total_paths = len(all_paths)
-        processed_paths = []
         for idx, p in enumerate(all_paths):
             if len(p.vertices) >= args.min:
                 if args.clean_artifacts:
@@ -478,82 +521,122 @@ def render_contours(T, args, output_path=None):
         # Clear existing contours and redraw only the processed paths
         for artist in list(ax.collections):
             artist.remove()
-        from matplotlib.collections import LineCollection
-        from matplotlib.path import Path as MplPath
-
-        if args.connect_edges:
-            
-            new_paths = []
-            
-            # edge points sorted into each edge of screen (going counter-clockwise from 0,0, with corners)
-            edge_points = [[(0,0), (0,h-1)], [(0,h-1), (w-1,h-1)], [(w-1,h-1), (w-1,0)], [(w-1,0)]]
-            
-            print("connecting edge lines")
-            
-            for path in processed_paths:
-                
-                # if closed loop, continue
-                if np.array_equal(path.vertices[0], path.vertices[-1]):
-                    continue
-                
-                # find the edge points
-                for vertex in path.vertices:
-                    
-                    x0_intercept_found = False
-                    x1_intercept_found = False
-                    y0_intercept_found = False
-                    y1_intercept_found = False
-                    
-                    if abs(vertex[0]) < 1 and not x0_intercept_found:
-                        edge_points[0].append((0, vertex[1]))
-                        x0_intercept_found = True
-                    if abs((vertex[1]+1) - h) < 1 and not y1_intercept_found:
-                        edge_points[1].append((vertex[0], h-1))
-                        y1_intercept_found = True
-                    if abs((vertex[0]+1) - w) < 1 and not x1_intercept_found:
-                        edge_points[2].append((w, vertex[1]))
-                        x1_intercept_found = True
-                    if abs(vertex[1]) < 1 and not y0_intercept_found:
-                        edge_points[3].append((vertex[0], 0))
-                        y0_intercept_found = True
-                    
-                    
-            # sort lists by other value
-            edge_points[0].sort(key=lambda x: x[1])
-            edge_points[1].sort(key=lambda x: x[0])
-            edge_points[2].sort(key=lambda x: x[1], reverse = True)
-            edge_points[3].sort(key=lambda x: x[0], reverse = True)
-
-            # clean artifacts
-            edge_points[0] = [edge_points[0][i] for i in range(len(edge_points[0])) if abs(edge_points[0][(i+1)%len(edge_points[0])][1] - edge_points[0][i][1]) > 2*args.thickness]
-            edge_points[1] = [edge_points[1][i] for i in range(len(edge_points[1])) if abs(edge_points[1][(i+1)%len(edge_points[1])][0] - edge_points[1][i][0]) > 2*args.thickness]
-            edge_points[2] = [edge_points[2][i] for i in range(len(edge_points[2])) if abs(edge_points[2][(i+1)%len(edge_points[2])][1] - edge_points[2][i][1]) > 2*args.thickness]
-            edge_points[3] = [edge_points[3][i] for i in range(len(edge_points[3])) if abs(edge_points[3][(i+1)%len(edge_points[3])][0] - edge_points[3][i][0]) > 2*args.thickness]
-            
-            do_line = True
-
-            for i, edge_side in enumerate(edge_points):
-                for j, point in enumerate(edge_side[:-1]):
-                    # do every other line
-                    if do_line:
-                        new_paths.append(MplPath([point, edge_points[i][j+1]]))
-                    do_line=not do_line
-                if not i==0:
-                    do_line=not do_line
-            
-            print("added " + str(len(new_paths)) + " new edge line")
-            processed_paths.extend(new_paths)
-
-        segments = []
-        for path in processed_paths:
-            segments.append(path.vertices)
-        if segments:
-            lc = LineCollection(segments, colors=args.color, linewidths=args.thickness)
-            ax.add_collection(lc)
     
     print(f"Filtered out {filtered} tiny contours" + 
           (f", split {artifacts_removed} paths at MOVETO jumps" if artifacts_removed > 0 else ""))
+
+    if args.connect_edges:
+
+        # generate border connections
+        new_paths = []
+        non_edge_paths = []
+
+        # find edge intersections:
+        line_segments = {"x_0" : {}, "x_1" : {}, "y_0" : {}, "y_1" : {}}
+
+        for path in processed_paths:
+
+            vertex0 = path.vertices[0]
+            vertex1 = path.vertices[-1]
+            
+            # if not on border, add to non edge paths
+            if abs(vertex0[0]) > 1 and abs(vertex0[0]-w+1) > 1 and abs(vertex0[1]) > 1 and abs(vertex0[1]-h+1) > 1:
+                non_edge_paths.append(path)
+                continue
+            
+            if abs(vertex0[0]) < 0.1:
+                line_segments["x_0"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if abs(vertex0[0] - (w-1)) < 0.1:
+                line_segments["x_1"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if  abs(vertex0[1]) < 0.1:
+                line_segments["y_0"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if  abs(vertex0[1] - (h-1)) < 0.1:
+                line_segments["y_1"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if  abs(vertex1[0]) < 0.1:
+                line_segments["x_0"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if  abs(vertex1[0] - (w-1)) < 0.1:
+                line_segments["x_1"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if  abs(vertex1[1]) < 0.1:
+                line_segments["y_0"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if  abs(vertex1[1] - (h-1)) < 0.1:
+                line_segments["y_1"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+
+        line_segments_compiled = line_segments["x_0"] | line_segments["x_1"] | line_segments["y_0"] | line_segments["y_1"]
+
+        # sort edge intersections and add corners:
+        x_0_sorted = sorted(list(line_segments["x_0"].keys()) + [(0,0)], key= lambda x : x[1])
+        x_1_sorted = sorted(list(line_segments["x_1"].keys()) + [(w-1,h-1)], key= lambda x : x[1])
+        y_0_sorted = sorted(list(line_segments["y_0"].keys()) + [(w-1,0)], key= lambda x : x[0])
+        y_1_sorted = sorted(list(line_segments["y_1"].keys()) + [(0,h-1)], key= lambda x : x[0])
+
+        # combine into single sorted list
+        all_edge_nodes_ordered = x_0_sorted + y_1_sorted + list(reversed(x_1_sorted)) + list(reversed(y_0_sorted))
+        remaining_nodes = [True for i in range(len(all_edge_nodes_ordered))]
+       
+        # start at bottom left (arbitraty)
+        current_point = (0,h-1)
+
+        # loop n times
+        for i in range(len(processed_paths)):
+            
+            # get index of current point
+            current_index = all_edge_nodes_ordered.index(current_point)
+
+            # get direction towards highest density of unvisited nodes
+            dir = get_direction(current_point, remaining_nodes, all_edge_nodes_ordered)
+
+            # choose next point in direction
+            next_index = (current_index + dir) % len(remaining_nodes)
+
+            # if next point has already been visited, terminate
+            if not remaining_nodes[next_index]:
+                break
+            
+            next_point = all_edge_nodes_ordered[next_index]
+
+            # mark current point as visited
+            remaining_nodes[current_index] = False
+            
+            # create new path
+            new_paths.append(MplPath([current_point, next_point]))
+
+            # if corner continue
+            if next_point in ((0,0), (0,h-1), (w-1, 0), (w-1,h-1)):
+                current_point = next_point
+            else:
+                # find next point at end of line
+                remaining_nodes[next_index] = False
+                line_endpoint = line_segments_compiled[next_point]
+                current_point = line_endpoint
+
+        # make paths into new path
+        new_path = []
+
+        for path in new_paths:
+            new_path.extend(path.vertices)
+            vertex_to_match = (path.vertices[-1][0], path.vertices[-1][1])
+            # if corner, continue
+            if vertex_to_match in ((0,0), (0,h-1), (w-1, 0), (w-1,h-1)):
+                continue
+
+            # match next contour line
+            for p_path in processed_paths:
+                if np.array_equal(p_path.vertices[0], vertex_to_match):
+                    new_path.extend(p_path.vertices[1::])
+                    break
+                if np.array_equal(p_path.vertices[-1], vertex_to_match):
+                    new_path.extend(reversed(p_path.vertices[0:-1]))
+                    break
+        processed_paths = [MplPath(new_path)] + non_edge_paths
     
+    segments = []
+    for path in processed_paths:
+            segments.append(path.vertices)
+
+    if segments:
+        lc = LineCollection(segments, colors=args.color, linewidths=args.thickness)
+        ax.add_collection(lc)
+
     ax.set_xlim(0, w)
     ax.set_ylim(h, 0)
     ax.axis('off')
