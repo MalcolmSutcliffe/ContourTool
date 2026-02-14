@@ -339,7 +339,6 @@ def solve_eikonal(T, speed, y, x, h, w):
     # Fallback (should not reach here if properly initialized)
     return np.inf
 
-
 def split_path_at_moves(path):
     """
     Split a matplotlib Path at MOVETO commands.
@@ -403,27 +402,28 @@ def get_closest_points(path1, path2):
 
     return (min_distance_index_p1, min_distance_index_p2)
 
-def get_next_point(side_list, current_point):
-    current_index = side_list.index(current_point)
+def get_direction(current_point, remaining_points, all_edge_nodes_ordered):
+    points_forward = 0
+    points_backward = 0
 
-    point_back = side_list[current_index-1]
-    point_forward = side_list[current_index+1]
-
-    dist_back = abs(current_point[1] - point_back[1])
-    dist_forward = abs(current_point[1] - point_forward[1])
-
-    if dist_forward <= dist_back:
-        next_point = point_forward
-    elif dist_back < dist_forward:
-        next_point = point_back
+    current_index = all_edge_nodes_ordered.index(current_point)
     
-    # prefer to go away from corner
-    if point_back == side_list[0] and not point_forward == side_list[-1]:
-        next_point = point_forward
-    elif not point_back == side_list[0] and point_forward == side_list[-1]:
-        next_point = point_back
+    for i in range(len(all_edge_nodes_ordered)):
+        check_index = (current_index+i)%len(all_edge_nodes_ordered)
+        if not remaining_points[check_index]:
+            break
+        points_forward += 1
+        
     
-    return next_point
+    for i in range(len(all_edge_nodes_ordered)):
+        check_index = (current_index-i)%len(all_edge_nodes_ordered)
+        if not remaining_points[check_index]:
+            break
+        points_backward += 1
+
+    if points_forward >= points_backward:
+        return 1
+    return -1
 
 def render_contours(T, args, output_path=None):
     """Render contours directly from distance map (matches original behavior)."""
@@ -527,17 +527,21 @@ def render_contours(T, args, output_path=None):
 
     if args.connect_edges:
 
+        # generate border connections
         new_paths = []
+        non_edge_paths = []
 
         # find edge intersections:
         line_segments = {"x_0" : {}, "x_1" : {}, "y_0" : {}, "y_1" : {}}
 
         for path in processed_paths:
-            # if not on border, skip
+
             vertex0 = path.vertices[0]
             vertex1 = path.vertices[-1]
             
+            # if not on border, add to non edge paths
             if abs(vertex0[0]) > 1 and abs(vertex0[0]-w+1) > 1 and abs(vertex0[1]) > 1 and abs(vertex0[1]-h+1) > 1:
+                non_edge_paths.append(path)
                 continue
             
             if abs(vertex0[0]) < 0.1:
@@ -556,167 +560,81 @@ def render_contours(T, args, output_path=None):
                 line_segments["y_0"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
             if  abs(vertex1[1] - (h-1)) < 0.1:
                 line_segments["y_1"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
-            
-    
 
         line_segments_compiled = line_segments["x_0"] | line_segments["x_1"] | line_segments["y_0"] | line_segments["y_1"]
 
         # sort edge intersections and add corners:
-        x_0_sorted = sorted(list(line_segments["x_0"].keys()) + [(0,0), (0,h-1)], key= lambda x : x[1])
-        x_1_sorted = sorted(list(line_segments["x_1"].keys()) + [(w-1,0), (w-1,h-1)], key= lambda x : x[1])
-        y_0_sorted = sorted(list(line_segments["y_0"].keys()) + [(0,0), (w-1,0)], key= lambda x : x[0])
-        y_1_sorted = sorted(list(line_segments["y_1"].keys()) + [(0,h-1), (w-1,h-1)], key= lambda x : x[0])
+        x_0_sorted = sorted(list(line_segments["x_0"].keys()) + [(0,0)], key= lambda x : x[1])
+        x_1_sorted = sorted(list(line_segments["x_1"].keys()) + [(w-1,h-1)], key= lambda x : x[1])
+        y_0_sorted = sorted(list(line_segments["y_0"].keys()) + [(w-1,0)], key= lambda x : x[0])
+        y_1_sorted = sorted(list(line_segments["y_1"].keys()) + [(0,h-1)], key= lambda x : x[0])
+
+        # combine into single sorted list
+        all_edge_nodes_ordered = x_0_sorted + y_1_sorted + list(reversed(x_1_sorted)) + list(reversed(y_0_sorted))
+        remaining_nodes = [True for i in range(len(all_edge_nodes_ordered))]
        
-        # algorithm:
+        # start at bottom left (arbitraty)
+        current_point = (0,h-1)
 
-        # start at bottom left
-        current_point = (0,849)
-        x_0_dir = 0
-        x_1_dir = 0
-        y_0_dir = 0
-        y_1_dir = 0
-
-        # track bounds for later
-        bounds = {"x_0" : {"min" : 0, "max" : h-1}, "x_1" : {"min" : 0, "max" : h-1}, "y_0" : {"min" : 0, "max" : w-1}, "y_1" : {"min" : 0, "max" : w-1}}
-
+        # loop n times
         for i in range(len(processed_paths)):
-            # case : on x0 border
-            if current_point in x_0_sorted:
-                # update bounds
-                if x_0_dir == 1:
-                    bounds["x_0"]["min"] = max(bounds["x_0"]["min"], current_point[1])
-                elif x_0_dir == -1:
-                    bounds["x_0"]["max"] = min(bounds["x_0"]["max"], current_point[1])
-                
-                x_0_sorted = [x for x in x_0_sorted if bounds["x_0"]["min"] <= x[1] <= bounds["x_0"]["max"]]
-                
-                current_index = x_0_sorted.index(current_point)
-
-                if current_index + 1.5 < len(x_0_sorted)/2:
-                    x_0_dir = 1
-                elif current_index + 1.5 > len(x_0_sorted)/2:
-                    x_0_dir = -1
-                
-                # case : last index, break
-                if current_index == len(x_0_sorted)-1:
-                    pass
-                # choose next point in direction
-                next_point = x_0_sorted[current_index + x_0_dir]
-
-                # remove point from list
-                x_0_sorted.remove(current_point)
-
             
-            # case : on x1 border
-            elif current_point in x_1_sorted:
-                # update bounds
-                if x_1_dir == 1:
-                    bounds["x_1"]["min"] = max(bounds["x_1"]["min"], current_point[1])
-                elif x_1_dir == -1:
-                    bounds["x_1"]["max"] = min(bounds["x_1"]["max"], current_point[1])
-                
-                x_1_sorted = [x for x in x_1_sorted if bounds["x_1"]["min"] <= x[1] <= bounds["x_1"]["max"]]
-                
-                current_index = x_1_sorted.index(current_point)
+            # get index of current point
+            current_index = all_edge_nodes_ordered.index(current_point)
 
-                if current_index + 1.5 < len(x_0_sorted)/2:
-                    x_1_dir = 1
-                elif current_index + 1.5 > len(x_0_sorted)/2:
-                    x_1_dir = -1
-                
-                # case : last index, break
-                if current_index == len(x_1_sorted)-1:
-                    pass
-                # choose next point in direction
-                next_point = x_1_sorted[current_index + x_1_dir]
-                
-                # remove point from list
-                x_1_sorted.remove(current_point)
+            # get direction towards highest density of unvisited nodes
+            dir = get_direction(current_point, remaining_nodes, all_edge_nodes_ordered)
 
+            # choose next point in direction
+            next_index = (current_index + dir) % len(remaining_nodes)
 
-
-            # case : on y0 border
-            elif current_point in y_0_sorted:
-                # update bounds
-                if y_0_dir == 1:
-                    bounds["y_0"]["min"] = max(bounds["y_0"]["min"], current_point[0])
-                elif y_0_dir == -1:
-                    bounds["y_0"]["max"] = min(bounds["y_0"]["max"], current_point[0])
-                
-                y_0_sorted = [x for x in y_0_sorted if bounds["y_0"]["min"] <= x[0] <= bounds["y_0"]["max"]]
-                
-                current_index = y_0_sorted.index(current_point)
-                
-                if current_index + 1.5 < len(y_0_sorted)/2:
-                    y_0_dir = 1
-                elif current_index + 1.5 > len(y_0_sorted)/2:
-                    y_0_dir = -1
-                
-                # case : last index, break
-                if current_index == len(y_0_sorted)-1:
-                    pass
-                # choose next point in direction
-                next_point = y_0_sorted[current_index + y_0_dir]
-
-                # remove point from list
-                y_0_sorted.remove(current_point)
-
-
-            # case : on y1 border
-            elif current_point in y_1_sorted:
-                # update bounds
-                if y_1_dir == 1:
-                    bounds["y_1"]["min"] = max(bounds["y_1"]["min"], current_point[0])
-                elif y_1_dir == -1:
-                    bounds["y_1"]["max"] = min(bounds["y_1"]["max"], current_point[0])
-
-                y_1_sorted = [x for x in y_1_sorted if bounds["y_1"]["min"] <= x[0] <= bounds["y_1"]["max"]]
-                
-                current_index = y_1_sorted.index(current_point)
-
-                if current_index + 1.5 < len(y_1_sorted)/2:
-                    y_1_dir = 1
-                elif current_index + 1.5 > len(y_1_sorted)/2:
-                    y_1_dir = -1
-                
-                # case : last index, break
-                if current_index == len(y_1_sorted)-1:
-                    pass
-                # choose next point in direction
-                next_point = y_1_sorted[current_index + y_1_dir]
-                
-                # remove point from list
-                y_1_sorted.remove(current_point)
-
-            if current_point == next_point:
+            # if next point has already been visited, terminate
+            if not remaining_nodes[next_index]:
                 break
             
+            next_point = all_edge_nodes_ordered[next_index]
+
+            # mark current point as visited
+            remaining_nodes[current_index] = False
+            
+            # create new path
             new_paths.append(MplPath([current_point, next_point]))
 
-            # if corner:
+            # if corner continue
             if next_point in ((0,0), (0,h-1), (w-1, 0), (w-1,h-1)):
                 current_point = next_point
             else:
-                if next_point in x_0_sorted:
-                    x_0_sorted.remove(next_point)
-                if next_point in x_1_sorted:
-                    x_1_sorted.remove(next_point)
-                if next_point in y_0_sorted:
-                    y_0_sorted.remove(next_point)
-                if next_point in y_1_sorted:
-                    y_1_sorted.remove(next_point)
+                # find next point at end of line
+                remaining_nodes[next_index] = False
                 line_endpoint = line_segments_compiled[next_point]
                 current_point = line_endpoint
 
-        processed_paths.extend(new_paths)
+        # make paths into new path
+        new_path = []
+
+        for path in new_paths:
+            new_path.extend(path.vertices)
+            vertex_to_match = (path.vertices[-1][0], path.vertices[-1][1])
+            # if corner, continue
+            if vertex_to_match in ((0,0), (0,h-1), (w-1, 0), (w-1,h-1)):
+                continue
+
+            # match next contour line
+            for p_path in processed_paths:
+                if np.array_equal(p_path.vertices[0], vertex_to_match):
+                    new_path.extend(p_path.vertices[1::])
+                    break
+                if np.array_equal(p_path.vertices[-1], vertex_to_match):
+                    new_path.extend(reversed(p_path.vertices[0:-1]))
+                    break
+        processed_paths = [MplPath(new_path)] + non_edge_paths
     
     segments = []
     for path in processed_paths:
             segments.append(path.vertices)
 
     if segments:
-        colors = cm.rainbow(np.linspace(0, 1, len(segments)))
-        lc = LineCollection(segments, colors=colors, linewidths=args.thickness)
+        lc = LineCollection(segments, colors=args.color, linewidths=args.thickness)
         ax.add_collection(lc)
 
     ax.set_xlim(0, w)
