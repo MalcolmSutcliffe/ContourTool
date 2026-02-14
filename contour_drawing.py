@@ -14,9 +14,11 @@ from skimage.filters import gaussian
 from skimage.transform import resize
 import matplotlib
 matplotlib.use('Agg')
+from matplotlib.collections import LineCollection
+from matplotlib.path import Path as MplPath
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import cm
 import heapq
-from shapely.geometry import LineString
 
 # Optional scikit-fmm support (C implementation, much faster)
 try:
@@ -383,6 +385,45 @@ def split_path_at_moves(path):
     
     return segments if segments else [path]
 
+def get_closest_points(path1, path2):
+    from scipy.spatial import KDTree
+
+    vertices1 = path1.vertices
+    vertices2 = path2.vertices
+
+    # Build a KDTree for one set of vertices (e.g., path 2)
+    tree2 = KDTree(vertices2)
+
+    # Find the distance and index of the closest point in tree2 for each point in vertices1
+    distances, indices = tree2.query(vertices1)
+
+    # Find the overall minimum distance and its corresponding index in vertices1
+    min_distance_index_p1 = np.argmin(distances)
+    min_distance_index_p2 = indices[min_distance_index_p1]
+
+    return (min_distance_index_p1, min_distance_index_p2)
+
+def get_next_point(side_list, current_point):
+    current_index = side_list.index(current_point)
+
+    point_back = side_list[current_index-1]
+    point_forward = side_list[current_index+1]
+
+    dist_back = abs(current_point[1] - point_back[1])
+    dist_forward = abs(current_point[1] - point_forward[1])
+
+    if dist_forward <= dist_back:
+        next_point = point_forward
+    elif dist_back < dist_forward:
+        next_point = point_back
+    
+    # prefer to go away from corner
+    if point_back == side_list[0] and not point_forward == side_list[-1]:
+        next_point = point_forward
+    elif not point_back == side_list[0] and point_forward == side_list[-1]:
+        next_point = point_back
+    
+    return next_point
 
 def render_contours(T, args, output_path=None):
     """Render contours directly from distance map (matches original behavior)."""
@@ -433,6 +474,8 @@ def render_contours(T, args, output_path=None):
     # Filter contours in place (compatible with matplotlib 3.8+)
     filtered = 0
     artifacts_removed = 0
+
+    processed_paths = []
     
     if hasattr(cs, 'collections'):
         # Old matplotlib (<3.8)
@@ -458,7 +501,6 @@ def render_contours(T, args, output_path=None):
         # New matplotlib (3.8+)
         all_paths = cs.get_paths()
         total_paths = len(all_paths)
-        processed_paths = []
         for idx, p in enumerate(all_paths):
             if len(p.vertices) >= args.min:
                 if args.clean_artifacts:
@@ -479,42 +521,20 @@ def render_contours(T, args, output_path=None):
         # Clear existing contours and redraw only the processed paths
         for artist in list(ax.collections):
             artist.remove()
-        from matplotlib.collections import LineCollection
-        from matplotlib.path import Path as MplPath
-        
-        segments = []
-        for path in processed_paths:
-            segments.append(path.vertices)
-        if segments:
-            lc = LineCollection(segments, colors=args.color, linewidths=args.thickness)
-            ax.add_collection(lc)
     
     print(f"Filtered out {filtered} tiny contours" + 
           (f", split {artifacts_removed} paths at MOVETO jumps" if artifacts_removed > 0 else ""))
-    
-    ax.set_xlim(0, w)
-    ax.set_ylim(h, 0)
-    ax.axis('off')
 
     if args.connect_edges:
-        
-        print("connecting edge lines")
-
-        contours = cs.get_paths()
-
-        x_points = []
-        y_points = []
 
         new_paths = []
 
-        # split paths
-        for path in contours:
-            new_paths.extend(split_path_at_moves(path))
+        # find edge intersections:
+        x_points = []
+        y_points = []
+        line_segments = {"x_0" : {}, "x_1" : {}, "y_0" : {}, "y_1" : {}}
 
-        # create dict of segments referenced by their intersection point
-        line_segments = {"x_0_intercepts" : {}, "x_1_intercepts" : {}, "y_0_intercepts" : {}, "y_1_intercepts" : {}}
-
-        for path in new_paths:
+        for path in processed_paths:
             # if not on border, skip
             vertex0 = path.vertices[0]
             vertex1 = path.vertices[-1]
@@ -522,41 +542,156 @@ def render_contours(T, args, output_path=None):
             if abs(vertex0[0]) > 1 and abs(vertex0[0]-w+1) > 1 and abs(vertex0[1]) > 1 and abs(vertex0[1]-h+1) > 1:
                 continue
             
-            if vertex0[0] == 0:
-                line_segments["x_0_intercepts"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
-            if vertex0[0] == w-1:
-                line_segments["x_1_intercepts"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
-            if vertex0[1] == 0:
-                line_segments["y_0_intercepts"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
-            if vertex0[1] == h-1:
-                line_segments["y_1_intercepts"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
-            if vertex1[0] == 0:
-                line_segments["x_0_intercepts"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
-            if vertex1[0] == w-1:
-                line_segments["x_1_intercepts"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
-            if vertex1[1] == 0:
-                line_segments["y_0_intercepts"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
-            if vertex1[1] == h-1:
-                line_segments["y_1_intercepts"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if abs(vertex0[0]) < 0.1:
+                line_segments["x_0"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if abs(vertex0[0] - (w-1)) < 0.1:
+                line_segments["x_1"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if  abs(vertex0[1]) < 0.1:
+                line_segments["y_0"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if  abs(vertex0[1] - (h-1)) < 0.1:
+                line_segments["y_1"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
+            if  abs(vertex1[0]) < 0.1:
+                line_segments["x_0"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if  abs(vertex1[0] - (w-1)) < 0.1:
+                line_segments["x_1"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if  abs(vertex1[1]) < 0.1:
+                line_segments["y_0"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
+            if  abs(vertex1[1] - (h-1)) < 0.1:
+                line_segments["y_1"][(vertex1[0], vertex1[1])] = (vertex0[0], vertex0[1])
             
             x_points.append(path.vertices[0][0])
             x_points.append(path.vertices[-1][0])
             y_points.append(path.vertices[0][1])
             y_points.append(path.vertices[-1][1])
-        
-        print(line_segments["x_0_intercepts"].keys())
-        
-        plt.scatter(x_points, y_points, c="red")
-       
-        # print("added " + str(len(new_paths)) + " new edge line")
-
-        segments = []
-        # for path in line_segments["x_0_intercepts"].values():
-        #     segments.append(path.vertices)
-        if segments:
-            lc = LineCollection(segments, colors="blue", linewidths=args.thickness)
-            ax.add_collection(lc)
     
+        plt.scatter(x_points, y_points, c="red")
+
+        line_segments_compiled = line_segments["x_0"] | line_segments["x_1"] | line_segments["y_0"] | line_segments["y_1"]
+
+        # sort edge intersections and add corners:
+        x_0_sorted = sorted(list(line_segments["x_0"].keys()) + [(0,0), (0,h-1)], key= lambda x : x[1])
+        x_1_sorted = sorted(list(line_segments["x_1"].keys()) + [(w-1,0), (w-1,h-1)], key= lambda x : x[1])
+        y_0_sorted = sorted(list(line_segments["y_0"].keys()) + [(0,0), (w-1,0)], key= lambda x : x[0])
+        y_1_sorted = sorted(list(line_segments["y_1"].keys()) + [(0,h-1), (w-1,h-1)], key= lambda x : x[0])
+       
+        # algorithm:
+        
+        # start at arbitrary point
+        current_point = y_1_sorted[1]
+        next_point = line_segments_compiled[current_point]
+        y_1_sorted.remove(current_point)
+
+        current_point = next_point
+
+        # get next point on edge : nearest univisited, prefering away from corner
+        
+        for i in range(len(processed_paths)):
+            
+            # case : on x0 border
+            if current_point in x_0_sorted:
+                if len(x_0_sorted) <= 2:
+                    break
+                next_point = get_next_point(x_0_sorted, current_point)
+                # hit corner min:
+                if next_point == (0,0):
+                    new_paths.append(MplPath([current_point, next_point]))
+                    current_point = next_point
+                    next_point = y_0_sorted[1]
+                # hit corner max:
+                if next_point == (0,h-1):
+                    new_paths.append(MplPath([current_point, next_point]))
+                    current_point = next_point
+                    next_point = y_1_sorted[1]
+            
+            # case : on x1 border
+            elif current_point in x_1_sorted:
+                if len(x_1_sorted) <= 2:
+                    break
+                next_point = get_next_point(x_1_sorted, current_point)
+                # hit corner min:
+                if next_point == (w-1,0):
+                    new_paths.append(MplPath([current_point, next_point]))
+                    current_point = next_point
+                    next_point = y_0_sorted[-2]
+                # hit corner max:
+                if next_point == (w-1,h-1):
+                    new_paths.append(MplPath([current_point, next_point]))
+                    current_point = next_point
+                    next_point = y_1_sorted[-2]
+
+            # case : on y0 border
+            elif current_point in y_0_sorted:
+                if len(y_0_sorted) <= 2:
+                    break
+                next_point = get_next_point(y_0_sorted, current_point)
+                # hit corner min:
+                if next_point == (0,0):
+                    new_paths.append(MplPath([current_point, next_point]))
+                    current_point = next_point
+                    next_point = x_0_sorted[1]
+                # hit corner max:
+                if next_point == (w-1,0):
+                    new_paths.append(MplPath([current_point, next_point]))
+                    current_point = next_point
+                    next_point = x_1_sorted[1]
+            
+            # case : on y1 border
+            elif current_point in y_1_sorted:
+                if len(y_1_sorted) <= 2:
+                    break
+                next_point = get_next_point(y_1_sorted, current_point)
+                # hit corner min:
+                if next_point == (0,h-1):
+                    new_paths.append(MplPath([current_point, next_point]))
+                    current_point = next_point
+                    next_point = x_0_sorted[-2]
+                # hit corner max:
+                if next_point == (w-1,h-1):
+                    new_paths.append(MplPath([current_point, next_point]))
+                    current_point = next_point
+                    next_point = x_1_sorted[-2]
+
+            new_paths.append(MplPath([current_point, next_point]))
+
+            # remove visited points
+            if current_point in x_0_sorted:
+                x_0_sorted.remove(current_point)
+            if current_point in x_1_sorted:
+                x_1_sorted.remove(current_point)
+            if current_point in y_0_sorted:
+                y_0_sorted.remove(current_point)
+            if current_point in y_1_sorted:
+                y_1_sorted.remove(current_point)
+
+            if next_point in x_0_sorted:
+                x_0_sorted.remove(next_point)
+            if next_point in x_1_sorted:
+                x_1_sorted.remove(next_point)
+            if next_point in y_0_sorted:
+                y_0_sorted.remove(next_point)
+            if next_point in y_1_sorted:
+                y_1_sorted.remove(next_point)
+
+            print(current_point)
+            line_endpoint = line_segments_compiled[next_point]
+            current_point = line_endpoint
+            
+
+        processed_paths.extend(new_paths)
+        # processed_paths = [MplPath(new_path)]
+    
+    segments = []
+    for path in processed_paths:
+            segments.append(path.vertices)
+
+    if segments:
+        colors = cm.rainbow(np.linspace(0, 1, len(segments)))
+        lc = LineCollection(segments, colors=colors, linewidths=args.thickness)
+        ax.add_collection(lc)
+
+    ax.set_xlim(0, w)
+    ax.set_ylim(h, 0)
+    ax.axis('off')
 
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     
