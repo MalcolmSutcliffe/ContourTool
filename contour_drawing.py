@@ -544,6 +544,7 @@ def render_contours(T, args, output_path=None):
                 non_edge_paths.append(path)
                 continue
             
+            # save start and end of line under edge 
             if abs(vertex0[0]) < 0.1:
                 line_segments["x_0"][(vertex0[0], vertex0[1])] = (vertex1[0], vertex1[1])
             if abs(vertex0[0] - (w-1)) < 0.1:
@@ -571,6 +572,8 @@ def render_contours(T, args, output_path=None):
 
         # combine into single sorted list
         all_edge_nodes_ordered = x_0_sorted + y_1_sorted + list(reversed(x_1_sorted)) + list(reversed(y_0_sorted))
+        
+        # list to track nodes visited
         remaining_nodes = [True for i in range(len(all_edge_nodes_ordered))]
        
         # start at bottom left (arbitraty)
@@ -609,7 +612,7 @@ def render_contours(T, args, output_path=None):
                 line_endpoint = line_segments_compiled[next_point]
                 current_point = line_endpoint
 
-        # make paths into new path
+        # consolidate paths
         new_path = []
 
         for path in new_paths:
@@ -623,11 +626,13 @@ def render_contours(T, args, output_path=None):
             for p_path in processed_paths:
                 if np.array_equal(p_path.vertices[0], vertex_to_match):
                     new_path.extend(p_path.vertices[1::])
+                    processed_paths.remove(p_path)
                     break
                 if np.array_equal(p_path.vertices[-1], vertex_to_match):
                     new_path.extend(reversed(p_path.vertices[0:-1]))
+                    processed_paths.remove(p_path)
                     break
-        processed_paths = [MplPath(new_path)] + non_edge_paths
+        processed_paths = [MplPath(new_path)] + non_edge_paths + processed_paths
     
     segments = []
     for path in processed_paths:
