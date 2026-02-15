@@ -527,6 +527,7 @@ def render_contours(T, args, output_path=None):
 
     if args.connect_edges:
 
+        print("connecting edges...")
         # generate border connections
         new_paths = []
         non_edge_paths = []
@@ -579,7 +580,7 @@ def render_contours(T, args, output_path=None):
         source = list(map(int, args.source[0].split(",")))
 
         # start at colosest corner to source
-        current_point = (round(int(source[0])/(w-1)*(w-1)), round(int(source[1])/(h-1)*(h-1)))
+        current_point = (round(int(source[0])/(w-1))*(w-1), round(int(source[1])/(h-1))*(h-1))
 
         # loop n times
         for i in range(len(processed_paths)):
@@ -634,7 +635,7 @@ def render_contours(T, args, output_path=None):
                     new_path.extend(reversed(p_path.vertices[0:-1]))
                     processed_paths.remove(p_path)
                     break
-        processed_paths = [MplPath(new_path)] + non_edge_paths + processed_paths
+        processed_paths = [MplPath(new_path)]
     
     segments = []
     for path in processed_paths:

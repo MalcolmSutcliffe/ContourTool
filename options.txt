@@ -1,10 +1,10 @@
 sources: 0,0
-number-contours: 100
+number-contours: 250
 min-points: 10
 gamma: 1.0
-dark-boost: 1.0
-bright-cut: 1.0
-blur: 0.0
+dark-boost: 0.5
+bright-cut: 0.5
+blur: 1.0
 smooth: 2.0
 scale: 1.0
 thickness: 1.0
