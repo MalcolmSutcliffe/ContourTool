@@ -101,8 +101,8 @@ Examples:
                         help='Split paths at MOVETO codes to remove jump artifacts (default: on)')
     parser.add_argument('--no-clean-artifacts', action='store_false', dest='clean_artifacts',
                         help='Disable path splitting')
-    parser.add_argument('-connect-edges', action='store_true', default=(default_values["connect-edges"]=="True"),
-                        help='Conenct contour lines that are on the edge of the image (default: off)')
+    parser.add_argument('-single-line', action='store_true', default=(default_values["single-line"]=="True"),
+                        help='Connect contour lines into single continous line')
     parser.add_argument('--pure-python', action='store_true',
                         help='Use pure Python fast marching (slower, for comparison/fallback)')
     parser.add_argument('--progress', action='store_true', default=(default_values["show-progress"]=="True"),
@@ -525,7 +525,7 @@ def render_contours(T, args, output_path=None):
     print(f"Filtered out {filtered} tiny contours" + 
           (f", split {artifacts_removed} paths at MOVETO jumps" if artifacts_removed > 0 else ""))
 
-    if args.connect_edges:
+    if args.single_line:
 
         print("connecting edges...")
         # generate border connections
