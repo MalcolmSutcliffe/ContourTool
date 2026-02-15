@@ -64,7 +64,7 @@ Examples:
                         help='Output image path (default: output.svg)')
     parser.add_argument('--source', type=str, action='append',
                         help='Source point(s) as "x1,y1" or "x1,y1,x2,y2,..." for multiple points. '
-                             'Can be specified multiple times. If not specified, uses image center.')
+                             'Can be specified multiple times. If not specified, uses image center.', default = [default_values["sources"]])
     parser.add_argument('--num', type=int, default=int(default_values["number-contours"]),
                         help='Number of contour levels (default: 30)')
     parser.add_argument('--min', type=int, default=int(default_values["min-points"]),
@@ -576,8 +576,10 @@ def render_contours(T, args, output_path=None):
         # list to track nodes visited
         remaining_nodes = [True for i in range(len(all_edge_nodes_ordered))]
        
-        # start at bottom left (arbitraty)
-        current_point = (0,h-1)
+        source = list(map(int, args.source[0].split(",")))
+
+        # start at colosest corner to source
+        current_point = (round(int(source[0])/(w-1)*(w-1)), round(int(source[1])/(h-1)*(h-1)))
 
         # loop n times
         for i in range(len(processed_paths)):
